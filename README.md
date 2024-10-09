@@ -2,21 +2,28 @@ Task03 Нина Чекалина ITMO
 <details><summary>Локальный вывод</summary><p>
 
 <pre>
-OpenCL devices:
-  Device #0: GPU. Intel(R) UHD Graphics 630. Total memory: 3221 Mb
-  Device #1: GPU. NVIDIA GeForce GTX 1050. Total memory: 4096 Mb
-Using device #0: GPU. Intel(R) UHD Graphics 630. Total memory: 3221 Mb
-CPU: 0.681167+-0.00484481 s
-CPU: 14.6807 GFlops
-    Real iterations fraction: 56.2638%
-Недопустимый параметр: 100
-Building kernels for Intel(R) UHD Graphics 630...
-Kernels compilation done in 1.297 seconds
-Device 1
-        Program build log:
+Задача 01:
 
+CPU:     0.303833+-0.00240947 s
+CPU:     329.128 millions/s
+CPU OMP: 0.091+-0.00152753 s
+CPU OMP: 1098.9 millions/s
+Atomic:  0.0913333+-0.00495536 s
+Atomic:  1094.89 millions/s
 
-GPU vs CPU average results difference: 4.31602e+10%
+Задача 02:
+суммирование циклом
+CPU:     0.306667+-0.00221108 s
+CPU:     326.087 millions/s
+CPU OMP: 0.0871667+-0.00318416 s
+CPU OMP: 1147.23 millions/s
+
+Задача 04:
+суммирование с локальной памятью и главным потоком
+CPU:     0.305167+-0.000897527 s
+CPU:     327.69 millions/s
+CPU OMP: 0.0846667+-0.00124722 s
+CPU OMP: 1181.1 millions/s
 
 </pre>
 

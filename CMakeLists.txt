@@ -32,6 +32,6 @@ add_executable(mandelbrot src/main_mandelbrot.cpp src/cl/mandelbrot_cl.h)
 target_link_libraries(mandelbrot libclew libgpu libimages libutils)
 
 # Для вычисления суммы
-#convertIntoHeader(src/cl/sum.cl src/cl/sum_cl.h sum_kernel)
-#add_executable(sum src/main_sum.cpp src/cl/sum_cl.h)
-#target_link_libraries(sum libclew libgpu libutils)
+convertIntoHeader(src/cl/sum.cl src/cl/sum_cl.h sum_kernel)
+add_executable(sum "src/main_sum04.cpp" src/cl/sum_cl.h)
+target_link_libraries(sum libclew libgpu libutils)
