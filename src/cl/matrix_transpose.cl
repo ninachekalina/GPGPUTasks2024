@@ -2,83 +2,74 @@
     #include <libgpu/opencl/cl/clion_defines.cl>
 #endif
 
+#define BLOCK_SIZE 16
 
-#line 6
-
-
-__kernel void matrix_transpose_naive(__global float *as, __global float *as_t, int M, int K) {
-    int globalIdX = get_global_id(0);
-    int globalIdY = get_global_id(1);
-
-    if (globalIdX < K && globalIdY < M) {
-        as_t[globalIdX * M + globalIdY] = as[globalIdY * K + globalIdX];
+__kernel void matrix_transpose_naive(
+    __global float *input_matrix,
+    __global float *transposed_matrix,
+    unsigned int rows,
+    unsigned int cols
+) {
+    int global_row = get_global_id(0);
+    int global_col = get_global_id(1);
+    
+    if (global_row < cols && global_col < rows) {
+        transposed_matrix[global_row * rows + global_col] = input_matrix[global_col * cols + global_row];
     }
 }
 
+__kernel void matrix_transpose_local_bad_banks(
+    __global float *input_matrix,
+    __global float *transposed_matrix,
+    unsigned int rows,
+    unsigned int cols
+) {
+    int global_row = get_global_id(0);
+    int global_col = get_global_id(1);
 
+    __local float local_tile[BLOCK_SIZE][BLOCK_SIZE];
+    int local_row = get_local_id(0);
+    int local_col = get_local_id(1);
 
-
-
-__kernel void matrix_transpose_local_bad_banks(__global float *as, __global float *as_t, int M, int K) {
-    const int LOCAL_SIZE_X = 32;
-    const int LOCAL_SIZE_Y = 8;
-
-    __local float tile[LOCAL_SIZE_Y][LOCAL_SIZE_X];
-
-    int globalIdX = get_global_id(0);
-    int globalIdY = get_global_id(1);
-    int localIdX = get_local_id(0);
-    int localIdY = get_local_id(1);
-    int groupIdX = get_group_id(0);
-    int groupIdY = get_group_id(1);
-
-    // Load data into shared memory
-    if (globalIdY * K + globalIdX < M * K) {
-        tile[localIdY][localIdX] = as[globalIdY * K + globalIdX];
+    if (global_row < cols && global_col < rows) {
+        local_tile[local_col][local_row] = input_matrix[global_col * cols + global_row];
+    } else {
+        local_tile[local_col][local_row] = 0;
     }
 
-    // Synchronize threads in the work group
     barrier(CLK_LOCAL_MEM_FENCE);
 
-    // Calculate new global IDs for transposed matrix
-    int newGlobalIdX = groupIdX * LOCAL_SIZE_X + localIdX;
-    int newGlobalIdY = groupIdY * LOCAL_SIZE_Y + localIdY;
-
-    // Store transposed data from shared memory to global memory
-    if (newGlobalIdX < K && newGlobalIdY < M) {
-        as_t[newGlobalIdX * M + newGlobalIdY] = tile[localIdY][localIdX];
+    int target_col = (global_row - local_row) + local_col;
+    int target_row = (global_col - local_col) + local_row;
+    if (target_row < cols && target_col < rows) {
+        transposed_matrix[target_col * cols + target_row] = local_tile[local_row][local_col];
     }
 }
 
+__kernel void matrix_transpose_local_good_banks(
+    __global float *input_matrix,
+    __global float *transposed_matrix,
+    unsigned int rows,
+    unsigned int cols
+) {
+    int global_row = get_global_id(0);
+    int global_col = get_global_id(1);
 
+    __local float local_tile[BLOCK_SIZE][BLOCK_SIZE + 1];
+    int local_row = get_local_id(0);
+    int local_col = get_local_id(1);
 
-__kernel void matrix_transpose_local_good_banks(__global float *as, __global float *as_t, int M, int K) {
-    const int LOCAL_SIZE_X = 32; // Adjust based on your work group size
-    const int LOCAL_SIZE_Y = 8;  // Adjust based on your work group size
-
-    __local float tile[LOCAL_SIZE_Y][LOCAL_SIZE_X + 1]; 
-
-    int globalIdX = get_global_id(0);
-    int globalIdY = get_global_id(1);
-    int localIdX = get_local_id(0);
-    int localIdY = get_local_id(1);
-    int groupIdX = get_group_id(0);
-    int groupIdY = get_group_id(1);
-
-    // Load data into shared memory
-    if (globalIdY * K + globalIdX < M * K) {
-        tile[localIdY][localIdX] = as[globalIdY * K + globalIdX];
+    if (global_row < cols && global_col < rows) {
+        local_tile[local_col][local_row] = input_matrix[global_col * cols + global_row];
+    } else {
+        local_tile[local_col][local_row] = 0;
     }
 
-    // Synchronize threads in the work group
     barrier(CLK_LOCAL_MEM_FENCE);
 
-    // Calculate new global IDs for transposed matrix
-    int newGlobalIdX = groupIdX * LOCAL_SIZE_X + localIdX;
-    int newGlobalIdY = groupIdY * LOCAL_SIZE_Y + localIdY;
-
-    // Store transposed data from shared memory to global memory
-    if (newGlobalIdX < K && newGlobalIdY < M) {
-        as_t[newGlobalIdX * M + newGlobalIdY] = tile[localIdY][localIdX];
+    int target_col = (global_row - local_row) + local_col;
+    int target_row = (global_col - local_col) + local_row;
+    if (target_row < cols && target_col < rows) {
+        transposed_matrix[target_col * cols + target_row] = local_tile[local_row][local_col];
     }
 }
