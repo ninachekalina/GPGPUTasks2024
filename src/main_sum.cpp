@@ -6,73 +6,107 @@
 
 #include "cl/sum_cl.h"
 
+
 template<typename T>
-void handleError(const T &expected, const T &actual, std::string message, std::string filename, int line)
+void raiseFail(const T &a, const T &b, std::string message, std::string filename, int line)
 {
-    std::cerr << "Error in " << filename << " at line " << line << ": " << message << std::endl;
-    std::cerr << "Expected: " << expected << ", Actual: " << actual << std::endl;
-    exit(1);
+    if (a != b) {
+        std::cerr << message << " But " << a << " != " << b << ", " << filename << ":" << line << std::endl;
+        throw std::runtime_error(message);
+    }
 }
 
-#define CHECK_EQUAL(a, b, message) handleError(a, b, message, __FILE__, __LINE__)
+#define EXPECT_THE_SAME(a, b, message) raiseFail(a, b, message, __FILE__, __LINE__)
 
-void executeSum(const std::vector<unsigned int>& data, unsigned int expectedSum, int iterations, gpu::Device device, ocl::Kernel kernel, std::string kernelName) {
-    unsigned int n = data.size();
+void exec(const std::vector<unsigned int>& as, unsigned int referenceSum, int benchmarkingIters, gpu::Device device, ocl::Kernel kernel, std::string kernelName) {
+    unsigned int n = as.size();
     unsigned int workGroupSize = 64;
-    unsigned int globalWorkSize = (n + workGroupSize - 1) / workGroupSize * workGroupSize;
+    unsigned int global_work_size = (n + workGroupSize - 1) / workGroupSize * workGroupSize;
 
-    gpu::gpu_mem_32u data_gpu;
-    data_gpu.resizeN(n);
-    data_gpu.writeN(data.data(), n);
+    gpu::gpu_mem_32u as_gpu;
+    as_gpu.resizeN(n);
+    as_gpu.writeN(as.data(), n);
 
     kernel.compile(false);
     {
         timer t;
-        for (int iter = 0; iter < iterations; ++iter) {
+        for (int iter = 0; iter < benchmarkingIters; ++iter) {
             unsigned int sum = 0;
 
             gpu::gpu_mem_32u sum_gpu;
             sum_gpu.resizeN(1);
             sum_gpu.writeN(&sum, 1);
-            kernel.exec(gpu::WorkSize(workGroupSize, globalWorkSize), data_gpu, sum_gpu, n);
+            kernel.exec(gpu::WorkSize(workGroupSize, global_work_size), as_gpu, sum_gpu, n);
             sum_gpu.readN(&sum, 1);
 
-            CHECK_EQUAL(expectedSum, sum, "GPU " + kernelName + " result should be consistent!");
+            EXPECT_THE_SAME(referenceSum, sum, "GPU " + kernelName + " result should be consistent!");
 
             t.nextLap();
         }
         std::cout << "GPU " + kernelName + ":     " << t.lapAvg() << "+-" << t.lapStd() << " s" << std::endl;
-        std::cout << "GPU " + kernelName + ":     " << (n / 1000.0 / 1000.0) / t.lapAvg() << " millions/s" << std::endl;
+        std::cout << "GPU " + kernelName + ":     " << (n/1000.0/1000.0) / t.lapAvg() << " millions/s" << std::endl;
     }
 }
 
 int main(int argc, char **argv)
 {
-    std::vector<unsigned int> as = generateRandomData(); // Рандомные данные для примера
-    unsigned int referenceSum = calculateSum(as); // Эталонная сумма
-
     int benchmarkingIters = 10;
+    unsigned int reference_sum = 0;
+    unsigned int n = 100*1000*1000;
+    std::vector<unsigned int> as(n, 0);
+    FastRandom r(42);
+    for (int i = 0; i < n; ++i) {
+        as[i] = (unsigned int) r.next(0, std::numeric_limits<unsigned int>::max() / n);
+        reference_sum += as[i];
+    }
+    {
+        timer t;
+        for (int iter = 0; iter < benchmarkingIters; ++iter) {
+            unsigned int sum = 0;
+            for (int i = 0; i < n; ++i) {
+                sum += as[i];
+            }
+            EXPECT_THE_SAME(reference_sum, sum, "CPU result should be consistent!");
+            t.nextLap();
+        }
+        std::cout << "CPU:     " << t.lapAvg() << "+-" << t.lapStd() << " s" << std::endl;
+        std::cout << "CPU:     " << (n/1000.0/1000.0) / t.lapAvg() << " millions/s" << std::endl;
+    }
+    {
+        timer t;
+        for (int iter = 0; iter < benchmarkingIters; ++iter) {
+            unsigned int sum = 0;
+            #pragma omp parallel for reduction(+:sum)
+            for (int i = 0; i < n; ++i) {
+                sum += as[i];
+            }
+            EXPECT_THE_SAME(reference_sum, sum, "CPU OpenMP result should be consistent!");
+            t.nextLap();
+        }
+        std::cout << "CPU OMP: " << t.lapAvg() << "+-" << t.lapStd() << " s" << std::endl;
+        std::cout << "CPU OMP: " << (n/1000.0/1000.0) / t.lapAvg() << " millions/s" << std::endl;
+    }
 
-    gpu::Device device = gpu::chooseGPUDevice(argc, argv);
-    gpu::Context context;
-    context.init(device.device_id_opencl);
-    context.activate();
+    {
+        // TODO: implement on OpenCL
+        // gpu::Device device = gpu::chooseGPUDevice(argc, argv);
+        gpu::Device device = gpu::chooseGPUDevice(argc, argv);
+        gpu::Context context;
+        context.init(device.device_id_opencl);
+        context.activate();
 
-    // Ядра для тестирования
-    ocl::Kernel atomicKernel(sum_kernel, sum_kernel_length, "sum_with_atomic");
-    executeSum(as, referenceSum, benchmarkingIters, device, atomicKernel, "atomicKernel");
+        ocl::Kernel globalAtomic(sum_kernel, sum_kernel_length, "sum_gpu_atomic");
+        exec(as, reference_sum, benchmarkingIters, device, globalAtomic, "globalAtomic");
 
-    ocl::Kernel loopKernel(sum_kernel, sum_kernel_length, "sum_with_loop");
-    executeSum(as, referenceSum, benchmarkingIters, device, loopKernel, "loopKernel");
+        ocl::Kernel loopSum(sum_kernel, sum_kernel_length, "sum_gpu_loop");exec(as, reference_sum, benchmarkingIters, device, loopSum, "loopSum");
 
-    ocl::Kernel coalescedKernel(sum_kernel, sum_kernel_length, "sum_with_local_memory_coalesced");
-    executeSum(as, referenceSum, benchmarkingIters, device, coalescedKernel, "coalescedKernel");
+        ocl::Kernel loopSumCoalesced(sum_kernel, sum_kernel_length, "sum_gpu_loop_coalesced");
+        exec(as, reference_sum, benchmarkingIters, device, loopSumCoalesced, "loopSumCoalesced");
 
-    ocl::Kernel localMemoryKernel(sum_kernel, sum_kernel_length, "sum_with_local_memory");
-    executeSum(as, referenceSum, benchmarkingIters, device, localMemoryKernel, "localMemoryKernel");
+        ocl::Kernel localMemorySum(sum_kernel, sum_kernel_length, "sum_gpu_local_memory");
+        exec(as, reference_sum, benchmarkingIters, device, localMemorySum, "localMemorySum");
 
-    ocl::Kernel treeReductionKernel(sum_kernel, sum_kernel_length, "sum_with_tree_reduction");
-    executeSum(as, referenceSum, benchmarkingIters, device, treeReductionKernel, "treeReductionKernel");
-
-    return 0;
+        ocl::Kernel treeSum(sum_kernel, sum_kernel_length, "sum_gpu_tree");
+        exec(as, reference_sum, benchmarkingIters, device, treeSum, "treeSum");
+    }
 }
