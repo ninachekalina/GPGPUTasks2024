@@ -25,13 +25,13 @@ void raiseFail(const T &a, const T &b, std::string message, std::string filename
 
 #define EXPECT_THE_SAME(a, b, message) raiseFail(a, b, message, __FILE__, __LINE__)
 
-std::vector<int> computeCPU(const std::vector<int> &as)
+std::vector<int> computeCPU(const std::vector<int> &input_array)
 {
     std::vector<int> cpu_sorted;
 
     timer t;
     for (int iter = 0; iter < benchmarkingItersCPU; ++iter) {
-        cpu_sorted = as;
+        cpu_sorted = input_array;
         t.restart();
         std::sort(cpu_sorted.begin(), cpu_sorted.end());
         t.nextLap();
@@ -49,41 +49,46 @@ int main(int argc, char **argv) {
     context.init(device.device_id_opencl);
     context.activate();
 
-    std::vector<int> as(n);
+    std::vector<int> input_array(n);
     FastRandom r(n);
     for (unsigned int i = 0; i < n; ++i) {
-        as[i] = r.next();
+        input_array[i] = r.next();
     }
     std::cout << "Data generated for n=" << n << "!" << std::endl;
 
-    const std::vector<int> cpu_sorted = computeCPU(as);
+    const std::vector<int> cpu_sorted = computeCPU(input_array);
 
-    // remove me for task 5.1
-    return 0;
+    gpu::gpu_mem_32i input_array_gpu;
+    gpu::gpu_mem_32i output_array_gpu;
 
-    gpu::gpu_mem_32i as_gpu;
-    gpu::gpu_mem_32i bs_gpu;
-
-    as_gpu.resizeN(n);
-    bs_gpu.resizeN(n);
+    input_array_gpu.resizeN(n);
+    output_array_gpu.resizeN(n);
 
     {
         ocl::Kernel merge_global(merge_kernel, merge_kernel_length, "merge_global");
         merge_global.compile();
 
+        unsigned int workGroupSize = 64;
+        unsigned int globalWorkSize = (n + workGroupSize - 1) / workGroupSize * workGroupSize;
         timer t;
         for (int iter = 0; iter < benchmarkingIters; ++iter) {
-            as_gpu.writeN(as.data(), n);
+            input_array_gpu.writeN(input_array.data(), n);
             t.restart();
-            // TODO
+            for (unsigned int blockSize = 1; blockSize < n; blockSize *= 2) {
+                merge_global.exec(
+                    gpu::WorkSize(workGroupSize, globalWorkSize),
+                    input_array_gpu, output_array_gpu, blockSize
+                );
+                std::swap(input_array_gpu, output_array_gpu);
+            }
             t.nextLap();
         }
         std::cout << "GPU global: " << t.lapAvg() << "+-" << t.lapStd() << " s" << std::endl;
         std::cout << "GPU global: " << (n / 1000 / 1000) / t.lapAvg() << " millions/s" << std::endl;
-        as_gpu.readN(as.data(), n);
+        input_array_gpu.readN(input_array.data(), n);
 
         for (int i = 0; i < n; ++i) {
-            EXPECT_THE_SAME(as[i], cpu_sorted[i], "GPU results should be equal to CPU results!");
+            EXPECT_THE_SAME(input_array[i], cpu_sorted[i], "GPU results should be equal to CPU results!");
         }
     }
 
@@ -101,17 +106,17 @@ int main(int argc, char **argv) {
 
         timer t;
         for (int iter = 0; iter < benchmarkingIters; ++iter) {
-            as_gpu.writeN(as.data(), n);
+            input_array_gpu.writeN(input_array.data(), n);
             t.restart();
             // TODO
             t.nextLap();
         }
         std::cout << "GPU local: " << t.lapAvg() << "+-" << t.lapStd() << " s" << std::endl;
         std::cout << "GPU local: " << (n / 1000 / 1000) / t.lapAvg() << " millions/s" << std::endl;
-        as_gpu.readN(as.data(), n);
+        input_array_gpu.readN(input_array.data(), n);
 
         for (int i = 0; i < n; ++i) {
-            EXPECT_THE_SAME(as[i], cpu_sorted[i], "GPU results should be equal to CPU results!");
+            EXPECT_THE_SAME(input_array[i], cpu_sorted[i], "GPU results should be equal to CPU results!");
         }
     }
 
