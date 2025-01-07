@@ -68,16 +68,22 @@ int main(int argc, char **argv) {
         ocl::Kernel bitonic(bitonic_kernel, bitonic_kernel_length, "bitonic");
         bitonic.compile();
 
+        unsigned int workGroupSize = 64;
+        unsigned int globalWorkSize = (n / 2 + workGroupSize - 1) / workGroupSize * workGroupSize;
         timer t;
         for (int iter = 0; iter < benchmarkingIters; ++iter) {
             as_gpu.writeN(as.data(), n);
             t.restart();// Запускаем секундомер после прогрузки данных, чтобы замерять время работы кернела, а не трансфер данных
-
-            /*TODO*/
-
+            for (unsigned int blockHalfSize = 1; blockHalfSize <= n / 2; blockHalfSize *= 2) {
+                for (unsigned int subBlockHalfSize = blockHalfSize; subBlockHalfSize >= 1; subBlockHalfSize /= 2) {
+                    bitonic.exec(
+                        gpu::WorkSize(workGroupSize, globalWorkSize),
+                        as_gpu, blockHalfSize, subBlockHalfSize
+                    );
+                }
+            }
             t.nextLap();
         }
-
         std::cout << "GPU: " << t.lapAvg() << "+-" << t.lapStd() << " s" << std::endl;
         std::cout << "GPU: " << (n / 1000 / 1000) / t.lapAvg() << " millions/s" << std::endl;
     }
