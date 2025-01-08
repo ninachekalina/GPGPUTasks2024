@@ -22,6 +22,10 @@ void exec(const std::vector<unsigned int>& as, unsigned int referenceSum, int be
     unsigned int n = as.size();
     unsigned int workGroupSize = 64;
     unsigned int global_work_size = (n + workGroupSize - 1) / workGroupSize * workGroupSize;
+	if (global_work_size > n) {
+        	global_work_size = ((n + workGroupSize - 1) / workGroupSize) * workGroupSize;
+    	}
+	
 
     gpu::gpu_mem_32u as_gpu;
     as_gpu.resizeN(n);
