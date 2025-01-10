@@ -20,12 +20,13 @@ void raiseFail(const T &a, const T &b, std::string message, std::string filename
 
 void exec(const std::vector<unsigned int>& as, unsigned int referenceSum, int benchmarkingIters, gpu::Device device, ocl::Kernel kernel, std::string kernelName) {
     unsigned int n = as.size();
-    unsigned int workGroupSize = 64;
+     unsigned int workGroupSize = 64;
     unsigned int global_work_size = (n + workGroupSize - 1) / workGroupSize * workGroupSize;
-	if (global_work_size > n) {
-        	global_work_size = ((n + workGroupSize - 1) / workGroupSize) * workGroupSize;
-    	}
-	
+
+    //  global_work_size не превышает n
+    if (global_work_size > n) {
+        global_work_size = n;
+    }
 
     gpu::gpu_mem_32u as_gpu;
     as_gpu.resizeN(n);
@@ -102,7 +103,8 @@ int main(int argc, char **argv)
         ocl::Kernel globalAtomic(sum_kernel, sum_kernel_length, "sum_gpu_atomic");
         exec(as, reference_sum, benchmarkingIters, device, globalAtomic, "globalAtomic");
 
-        ocl::Kernel loopSum(sum_kernel, sum_kernel_length, "sum_gpu_loop");exec(as, reference_sum, benchmarkingIters, device, loopSum, "loopSum");
+        ocl::Kernel loopSum(sum_kernel, sum_kernel_length, "sum_gpu_loop");
+	exec(as, reference_sum, benchmarkingIters, device, loopSum, "loopSum");
 
         ocl::Kernel loopSumCoalesced(sum_kernel, sum_kernel_length, "sum_gpu_loop_coalesced");
         exec(as, reference_sum, benchmarkingIters, device, loopSumCoalesced, "loopSumCoalesced");
